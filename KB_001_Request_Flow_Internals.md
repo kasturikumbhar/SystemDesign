@@ -834,5 +834,3 @@ Failure = Pipeline doesn't recover
 8. **Synchronous request-response has fundamental scaling limits**
 
 ---
-
-*This KB is meant as a reference for production debugging, interview preparation, and architectural discussions.*
