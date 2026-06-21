@@ -1,773 +1,804 @@
-# Knowledge Base: Distributed Systems & Scalability
-## Replication, Consensus, CAP Theorem, System Design Patterns & Production Patterns
+📘 Knowledge Base: Distributed Systems & Scalability
 
----
+Replication • Consensus • CAP Theorem • Sharding • Eventual Consistency • Production Patterns
 
-## PART 1: DISTRIBUTED SYSTEMS FUNDAMENTALS
+⸻
 
-### 1.1 Why Distributed Systems?
-```
-Single Machine Limitations:
+🏗 PART 1 — DISTRIBUTED SYSTEM FUNDAMENTALS
 
-CPU:
-  Max throughput: ~10k requests/sec per core
-  Solution: Add more cores/machines
+⸻
 
-Memory:
-  Max RAM: ~256GB per machine
-  Solution: Distribute data across machines
+🟦 Why Distributed Systems?
 
-Disk:
-  Max IOPS: ~100k per SSD
-  Solution: Shard data across multiple disks
+Single machine eventually hits physical limits
 
-Availability:
-  One machine = single point of failure
-  Solution: Replicate across multiple machines
+                Single Machine
+      ┌────────────────────────────┐
+      │ CPU      ~10k req/sec/core │
+      │ Memory   ~256GB            │
+      │ Disk IOPS ~100k SSD        │
+      │ Availability = SPOF        │
+      └────────────────────────────┘
+                     │
+                     ▼
+            Need Horizontal Scaling
+                     │
+                     ▼
+        ┌────────────┬────────────┬────────────┐
+        │ Machine A  │ Machine B  │ Machine C  │
+        └────────────┴────────────┴────────────┘
 
-These problems compound:
-  Small app: 1 machine works
-  Medium app: 10 machines needed
-  Large app: 100s or 1000s machines
+🟩 Benefits
 
-Challenges:
-  Network latency: Not negligible anymore
-  Partial failures: Some machines down, others up
-  Consistency: Multiple copies of data
-  Coordination: Hundreds of machines to coordinate
-```
+Problem	Solution
+CPU bottleneck	More machines
+Memory limits	Distributed storage
+Disk limits	Sharding
+Single point of failure	Replication
+Scale to millions	Cluster
 
-### 1.2 Failure Modes
-```
-Failures in Distributed Systems:
+⸻
 
-Machine Failure:
-  Crash: Machine stops responding
-  Recovery: Restart and rejoin
-  
-Network Failure:
-  Partition: Machines can't communicate
-  Asymmetric: One can send, other can't receive
-  Degradation: Slow/unreliable connection
-  
-Byzantine Failure:
-  Machine behaves unpredictably
-  Sends wrong data
-  Corrupts data
-  
-Clock Skew:
-  Machines have different time
-  Causes ordering problems
-  
-Cascading Failure:
-  One failure triggers another
-  Retry storm from unhealthy service
-  Entire system collapses
+🟥 New Problems Introduced
 
-These aren't theoretical:
-  AWS: Multi-AZ partition (lost zone connectivity)
-  Google: Software bug crashes cluster
-  Twitter: Cascading failure from one service
-```
+Distributed Systems
+        Machines
+           │
+ ┌─────────┼─────────┐
+ │         │         │
+ ▼         ▼         ▼
+Latency  Failures  Consistency
 
----
+Challenges
 
-## PART 2: REPLICATION
+🟨 Network latency
 
-### 2.1 Replication Models
-```
-Leader-Follower (Master-Slave):
+🟨 Partial failures
+
+🟨 Coordination
+
+🟨 Clock differences
+
+🟨 Multiple copies of data
+
+⸻
+
+⚠️ Failure Modes
+
+Machine Failure
+
+Node A
+   │
+   ▼
+CRASH
+   │
+Restart
+   │
+Rejoin cluster
+
+⸻
+
+Network Partition
+
+Cluster
+Node A ─────X───── Node B
+             |
+          connection lost
+Both alive
+Cannot communicate
+
+⸻
+
+Cascading Failure
+
+Service A slow
+      │
+      ▼
+Retries increase
+      │
+      ▼
+Service B overloaded
+      │
+      ▼
+More retries
+      │
+      ▼
+Entire system down
+
+⸻
+
+🔵 PART 2 — REPLICATION
+
+⸻
+
+Leader-Follower Replication
+
+                    Writes
+Client ───────────────► Leader
+                           │
+                Replicate updates
+                 ┌─────────┴─────────┐
+                 ▼                   ▼
+             Follower A          Follower B
+Reads can go anywhere
+Writes only to Leader
+
+⸻
+
+🟩 Advantages
+
+✅ Simple
+
+✅ Read scaling
+
+✅ High availability
+
+⸻
+
+🟥 Drawbacks
+
+❌ Leader bottleneck
+
+❌ Replication lag
+
+❌ Split-brain risk
+
+⸻
+
+Multi-Master Replication
+
+            Node A
+           ↔     ↔
+         ↔         ↔
+      Node B ↔ Node C
+Every node accepts reads + writes
+
+Benefits
+
+🟩 No single leader
+
+🟩 Higher write availability
+
+⸻
+
+Problem
+
+Concurrent updates:
+
+Node A:
+Age = 30
+Node B:
+Age = 31
+Conflict!
+
+Requires conflict resolution.
+
+⸻
+
+PART 3 — REPLICATION LAG
+
+⸻
+
+Write Flow
+
+Client
+   │
+   ▼
+Leader receives write
+   │
+0ms
+   │
+▼
+Follower receives
+10ms
+   │
+▼
+Apply update
+12ms
+
+⸻
+
+During These 12ms
 
 Leader:
-  - Receives all writes
-  - Processes transactions
-  - Writes to local disk
-  - Sends changes to followers
-
+Name = John
 Follower:
-  - Receives updates from leader
-  - Applies changes (replay)
-  - Serves read-only traffic
-  - Cannot accept writes
+Name = ""
+(stale)
 
-Read Flow:
-  Read request → Can go to Leader or any Follower
-  ✓ Fast reads (distribute across replicas)
-  ✓ Scale reads (add more followers)
+⸻
 
-Write Flow:
-  Write request → Must go to Leader
-  Leader processes
-  Leader sends to Followers
-  Followers apply
+Problem 1
 
-Benefits:
-  ✓ High availability (failover)
-  ✓ Read scaling
-  ✓ Simple to understand
-  
-Drawbacks:
-  ✗ All writes through leader (not scalable)
-  ✗ Replication lag (followers behind)
-  ✗ Split-brain if leader fails
+Read-after-write inconsistency
 
-Peer-to-Peer (Multi-Master):
+User updates profile
+Write → Leader
+Immediately read
+Read → Follower
+Old value returned
 
-Each node:
-  - Can receive reads AND writes
-  - Replicates to all other nodes
-  - Conflict resolution needed
+Solution
 
-Write Flow:
-  Write request → Any node accepts
-  → Propagates to all others
-  ✓ All nodes can write
-  ✓ No single point of failure
-  
-Challenges:
-  ✗ Concurrent writes to same data
-  ✗ Conflicts must be resolved
-  ✗ Consistency harder to guarantee
+🟩 Route recent reads to leader
 
-Example Conflict:
-  Node A: user.age = 30
-  Node B: user.age = 31 (same user, concurrent writes)
-  
-  Now both versions exist
-  Solution needed:
-    - Last-write-wins (keep 31)
-    - Merge (more complex)
-    - Application logic
-    
-Used by: DynamoDB, Cassandra (Eventual Consistency)
-```
+⸻
 
-### 2.2 Replication Lag
-```
-Scenario: Leader-Follower setup
+Problem 2
 
-Leader receives write:
-  1. Process write
-  2. Commit locally (0ms)
-  3. Send to Follower (10ms network latency)
-  4. Follower receives (10ms total)
-  5. Follower applies (12ms total)
+Monotonic Read Violation
 
-During this 12ms window:
-  ✓ Reads from Leader: See latest data
-  ✗ Reads from Follower: See old data
+Read 1:
+Version 5
+Read 2:
+Version 3
+Time appears to move backward
 
-Problems This Causes:
+Solution
 
-1. Read-After-Write Inconsistency
-   User writes profile: name = "John"
-   Immediately reads from follower: name = "" (old)
-   User confused!
-   
-   Solution: Route recent writes to leader
+🟩 Sticky sessions
 
-2. Monotonic Read Violation
-   Read 1 from Follower A: data_version = 5
-   Follower A restarted, replication lagged
-   Read 2 from Follower A: data_version = 3
-   Version went backwards!
-   User confused!
-   
-   Solution: Sticky reads (same client → same server)
+⸻
 
-3. Causal Consistency Violation
-   T1: Write x = 5
-   T2: Write y = x + 10 (y = 15)
-   Read y from old follower: y = null (x not replicated yet)
-   Invalid!
-   
-   Solution: Wait for replication before reading
+🔴 PART 4 — CAP THEOREM
 
-Replication Lag in Practice:
-  Microseconds: Negligible
-  Milliseconds: Noticeable
-  Seconds: Serious problem
-  
-Monitoring:
-  Measure replication delay
-  Alert if > threshold
-  Consider degrading service
-```
+⸻
 
----
+Three Properties
 
-## PART 3: CONSENSUS & CAP THEOREM
+          CAP
+         / | \
+        /  |  \
+       C   A   P
 
-### 3.1 CAP Theorem
-```
-Three Properties:
+⸻
 
-Consistency (C):
-  All nodes see same data
-  Reading from any node returns latest value
-  
-  Guarantee: Strong consistency
-  Tradeoff: Must coordinate (slow)
+🟦 Consistency
 
-Availability (A):
-  System always responds
-  No failures → always responding
-  
-  Guarantee: Responsive
-  Tradeoff: Might return stale data
+Every node sees latest value.
 
-Partition Tolerance (P):
-  System survives network partition
-  Nodes cut off from each other
-  System continues operating
-  
-  Guarantee: Fault tolerance
-  Tradeoff: Can't maintain both C and A
+Read Node A = 5
+Read Node B = 5
+Read Node C = 5
 
-CAP Theorem:
-  In presence of network partition
-  Choose at most TWO of {C, A, P}
+⸻
 
-In Reality:
-  Network partitions WILL happen
-  Therefore P is mandatory
-  
-Choice becomes:
-  CP: Consistency + Partition tolerance
-      (sacrifice Availability)
-      
-      Example: PostgreSQL (single leader)
-      Leader fails → No writes until recovery
-      Read-only mode during partition
-      
-      ✓ Strong consistency
-      ✗ Not always available for writes
-      
-  AP: Availability + Partition tolerance
-      (sacrifice Consistency)
-      
-      Example: DynamoDB, Cassandra
-      Both sides accept writes during partition
-      Conflict resolution later
-      
-      ✓ Always available
-      ✗ Eventual consistency (stale data temporarily)
+🟩 Availability
 
-Timeline of CAP:
+System always responds.
 
-  Normal (no partition):
-    Can appear to have all three
-    High consistency + high availability
-    
-  During partition:
-    MUST choose: consistency OR availability
-    
-  After partition:
-    System heals
-    Consistency restored (eventually)
+Request
+   │
+Response always returned
 
-In Practice:
-  Most systems: AP (eventual consistency)
-  High-volume apps favor availability
-  Data loss rare (replicated)
-  Temporary inconsistency acceptable
-  
-  Critical apps: CP (strong consistency)
-  Financial systems
-  Banking
-  Inventory management
-```
+⸻
 
-### 3.2 Consensus Algorithms
-```
-Problem:
-  Distributed nodes need to agree on value
-  Despite failures
-  Despite delays
-  Despite partitions
+🟨 Partition Tolerance
 
-Solution: Consensus Algorithm
+Network failures tolerated.
 
-Raft (Simpler, used by Consul):
+Node A  X  Node B
+System continues
 
-Roles:
-  Leader: Accepts writes, commands
-  Follower: Replicates leader's log
-  Candidate: Competing to be leader
+⸻
 
-Three sub-problems:
+CAP Reality
 
-1. Leader Election
-   No leader elected
-   ↓
-   Followers wait random timeout (150-300ms)
-   ↓
-   First timeout → Become candidate
-   ↓
-   Ask others to vote
-   ↓
-   If get majority → Become leader
-   ↓
-   Append entries to prove alive
-   
-   Ensures: One leader at a time
+Network partitions WILL happen
 
-2. Log Replication
-   Client sends command to leader
-   ↓
-   Leader adds to log (uncommitted)
-   ↓
-   Sends to followers
-   ↓
-   Followers append to log
-   ↓
-   Followers acknowledge
-   ↓
-   Leader commits (when majority ack)
-   ↓
-   Leader applies to state machine
-   ↓
-   Sends commit message to followers
-   
-   Ensures: All nodes execute same sequence
+Therefore:
 
-3. Safety
-   Ensure no data loss
-   
-   Rules:
-   - Only leader can append entries
-   - Followers accept from leader only
-   - Entries must be committed before applying
-   - If candidate becomes leader:
-     Previous uncommitted entries discarded
+P is mandatory
+Choose:
+CP or AP
 
-Example: 5-node cluster, 1 fails
+⸻
 
-  Node 1 (Leader)
-  Node 2 (Follower)
-  Node 3 (Follower)
-  Node 4 (Follower)
-  Node 5 (Down)
-  
-  Write request to leader
-  ↓
-  Leader appends to log: [entry 5]
-  ↓
-  Sends to followers 2,3,4
-  ↓
-  3 acknowledge (2,3,4)
-  ↓
-  Majority (3 of 5)
-  ↓
-  Leader commits
-  ↓
-  Tolerates: 1 node failure (need 3 of 5)
-  
-  If leader fails:
-  ↓
-  Followers wait timeout
-  ↓
-  One becomes candidate
-  ↓
-  Gets votes from 2 others
-  ↓
-  Becomes new leader
-  ↓
-  System continues
+CP Systems
 
-Used by: Consul, etcd (K8s), Zookeeper
-```
+Consistency
++
+Partition Tolerance
 
----
+Sacrifice availability.
 
-## PART 4: SHARDING & PARTITIONING
+Examples:
 
-### 4.1 Sharding Strategies
-```
-Problem: Too much data for one machine
+🟦 PostgreSQL
 
-Data Growth:
-  Year 1: 100GB (fits on one machine)
-  Year 2: 1TB (fits on one machine)
-  Year 3: 10TB (doesn't fit!)
-  
-Solution: Shard across multiple machines
+🟦 ZooKeeper
 
-Sharding Strategy 1: Range-based
-  
-  Shard 1: user_id 1-1M
-  Shard 2: user_id 1M-2M
-  Shard 3: user_id 2M-3M
-  
-  Routing:
-    user_id = 500k → Shard 1
-    user_id = 1.5M → Shard 2
-    user_id = 2.5M → Shard 3
-  
-  Pros:
-    ✓ Simple routing
-    ✓ Range queries efficient (all data in one shard)
-    
-  Cons:
-    ✗ Uneven distribution (popular ranges hot)
-    ✗ Rebalancing complex
+🟦 etcd
 
-Sharding Strategy 2: Hash-based
-  
-  hash(user_id) % 3
-    hash(500k) % 3 = 0 → Shard 1
-    hash(1.5M) % 3 = 1 → Shard 2
-    hash(2.5M) % 3 = 2 → Shard 3
-  
-  Pros:
-    ✓ Even distribution
-    ✓ Predictable routing
-    
-  Cons:
-    ✗ Rebalancing causes redistribution
-    ✗ Range queries require hitting all shards
+⸻
 
-Sharding Strategy 3: Directory-based
-  
-  Directory service:
-    user_id → shard mapping
-    500k → Shard 1
-    1.5M → Shard 2
-    2.5M → Shard 3
-  
-  Lookup: Ask directory → Go to shard
-  
-  Pros:
-    ✓ Flexible
-    ✓ Easy rebalancing
-    
-  Cons:
-    ✗ Directory lookup overhead
-    ✗ Directory becomes bottleneck
+During Leader Failure
 
-Sharding Strategy 4: Consistent Hashing
-  
-  Ring of 360 positions
-  
-  Shards: A, B, C at positions 0, 120, 240
-  
-  Key hashes to position
-  → Find next shard clockwise
-  
-  Pros:
-    ✓ Minimal rebalancing when adding shard
-    ✓ Load balanced
-    
-  Cons:
-    ✗ Slightly more complex
-    
-  When adding Shard D:
-    Only keys between C and D move
-    Other keys stay (vs redistribution with mod)
+Leader down
+No writes allowed
+Wait for recovery
 
-Example: DynamoDB uses Consistent Hashing + Virtual Nodes
-```
+⸻
 
-### 4.2 Hot Shard Problem
-```
-Problem: Uneven load distribution
+AP Systems
 
-Scenario:
-  Shard 1: Celebrity user (100M followers)
-    Load: 1M reads/sec
-    
-  Shard 2: Regular users (million users)
-    Load: 10k reads/sec
-    
-  Shard 3: Regular users
-    Load: 10k reads/sec
+Availability
++
+Partition Tolerance
+
+Sacrifice consistency.
+
+Examples:
+
+🟩 Cassandra
+
+🟩 DynamoDB
+
+⸻
+
+During partition:
+
+Both sides continue accepting writes
+Temporary inconsistency
+
+⸻
+
+🟣 PART 5 — CONSENSUS (RAFT)
+
+⸻
+
+Goal
+
+All nodes agree on same sequence.
+
+⸻
+
+Cluster
+
+          Leader
+            │
+     ┌──────┼──────┐
+     ▼      ▼      ▼
+Follower Follower Follower
+
+⸻
+
+Leader Election
+
+Leader dies
+     │
+Followers wait random timeout
+     │
+One becomes Candidate
+     │
+Requests votes
+     │
+Majority wins
+     │
+New Leader elected
+
+⸻
+
+Log Replication
+
+Client
+  │
+  ▼
+Leader appends entry
+  │
+  ▼
+Send to followers
+  │
+  ▼
+Majority ACK
+  │
+  ▼
+Commit
+
+⸻
+
+Example
+
+5-node cluster
+
+Need majority = 3
+Node1 Leader
+Node2 Follower
+Node3 Follower
+Node4 Follower
+Node5 Down
+3 acknowledgements
+COMMIT SUCCESS
+
+Can tolerate:
+
+2 failures
+
+⸻
+
+🟠 PART 6 — SHARDING
+
+⸻
+
+Problem
+
+Year1 → 100GB
+Year2 → 1TB
+Year3 → 10TB
+Single machine no longer sufficient
+
+⸻
+
+Range Sharding
+
+Shard1
+1 → 1M
+Shard2
+1M → 2M
+Shard3
+2M → 3M
+
+Pros
+
+🟩 Easy range queries
+
+Cons
+
+🟥 Hot ranges possible
+
+⸻
+
+Hash Sharding
+
+hash(user_id)%3
+500k → Shard1
+1.5M → Shard2
+2.5M → Shard3
+
+Pros
+
+🟩 Uniform distribution
+
+Cons
+
+🟥 Difficult range queries
+
+⸻
+
+Consistent Hashing
+
+           A
+        /     \
+     D           B
+        \      /
+           C
+
+Keys placed around ring.
+
+Adding new node:
+
+Only nearby keys move
+
+Very little rebalancing.
+
+Used by:
+
+🟢 DynamoDB
+
+🟢 Cassandra
+
+⸻
+
+🔥 Hot Shard Problem
+
+Shard1
+Celebrity user
+1M reads/sec
+Shard2
+10k reads/sec
+Shard3
+10k reads/sec
 
 Result:
-  Shard 1 saturated
-  Others idle
-  Bottleneck at Shard 1
 
-Solutions:
+Shard1 overloaded
+Others idle
 
-1. Sub-sharding
-   Shard 1 too hot → Split into Shard 1a, 1b, 1c
-   Distribute hot data across multiple physical shards
-   
-   Routing: hash(user_id, sub_shard) % 3
-   
-   Cons: Complex routing logic
+⸻
 
-2. Caching
-   Cache hot data aggressively
-   Most requests hit cache
-   Only overflow hits database
-   
-   Example: Redis cache for celebrity posts
-   
-   Pros: Simple, effective
-   Cons: Cache miss still slow
+Solutions
 
-3. Read Replicas
-   Replicate hot shard to multiple replicas
-   Distribute reads across replicas
-   
-   Pros: Spreads read load
-   Cons: Still one write destination
+🟩 Cache
 
-4. Denormalization
-   Pre-compute aggregates
-   Avoid expensive queries on hot data
-   
-   Example: Pre-compute follower counts
-            Update asynchronously
+Users
+   │
+Redis Cache
+   │
+Database
 
-Prevention:
-  Monitor shard utilization
-  Rebalance early
-  Split before saturation
-```
+⸻
 
----
+🟩 Read Replicas
 
-## PART 5: EVENTUAL CONSISTENCY
+          Primary
+        /     |     \
+Replica1 Replica2 Replica3
 
-### 5.1 Eventual Consistency Model
-```
-Guarantee:
-  "If no new writes after time T,
-   all nodes will eventually see same data"
+⸻
 
-Not:
-  "All nodes see same data immediately"
+🟩 Sub-sharding
 
-Timeline:
+Shard1
+→ Shard1A
+→ Shard1B
+→ Shard1C
 
-T=0:
-  Write x = 5 to Node A
-  
-T=5ms:
-  Node A has: x = 5
-  Node B has: x = 0 (old)
-  Node C has: x = 0 (old)
-  (Inconsistent)
-  
-T=100ms:
-  Node A has: x = 5
-  Node B has: x = 5 (replicated)
-  Node C has: x = 0 (replication in progress)
-  
-T=200ms:
-  Node A has: x = 5
-  Node B has: x = 5
-  Node C has: x = 5 (fully replicated)
-  (Consistent!)
-  
-Guarantee: Eventually consistent
+⸻
 
-Trade-offs:
+🟡 PART 7 — EVENTUAL CONSISTENCY
 
-For User:
-  ✓ High availability (no waiting for consensus)
-  ✓ Low latency (can return immediately)
-  
-  ✗ Might see stale data temporarily
-  ✗ Need conflict resolution
+⸻
 
-For System:
-  ✓ Better scalability (no coordination overhead)
-  ✓ Partition-tolerant (works during splits)
-  
-  ✗ Complex application logic (handle stale data)
-  ✗ Debugging harder (timing-dependent bugs)
+Timeline
 
-When to use:
-  ✓ Social media feeds (stale OK)
-  ✓ Analytics (eventual accuracy fine)
-  ✓ Caching (stale fine)
-  
-  ✗ Financial transactions (need strong consistency)
-  ✗ Inventory (need accurate counts)
-  ✗ User authentication (need fresh state)
-```
+T = 0
 
-### 5.2 Conflict Resolution
-```
-Scenario: Multi-master replication
+Node A = 5
+Node B = 0
+Node C = 0
 
-Node A writes: user.age = 30
-Node B writes: user.age = 31 (same user, concurrent)
+⸻
 
-Both think they're correct
-Now both changes propagate to each other
+T = 100ms
 
-Conflict:
-  Which is the "true" value?
+Node A = 5
+Node B = 5
+Node C = 0
 
-Solutions:
+⸻
 
-1. Last-Write-Wins (LWW)
-   Keep write with latest timestamp
-   Problem: Relies on clock synchronization
-   
-   If Node A's clock ahead:
-     A: timestamp 100
-     B: timestamp 99
-     → Keep A's value even if B wrote later
-     → Wrong!
+T = 200ms
 
-2. Vector Clocks
-   Each node tracks causality
-   
-   Node A: [A:5, B:3] (seen 5 from A, 3 from B)
-   Node B: [A:3, B:4]
-   
-   If A sees [A:5, B:3] and then [A:3, B:4]:
-     A's clock is ahead → A's write happened after
-     → Keep A's value
-   
-   If neither is strictly ahead:
-     Concurrent writes → Conflict
+Node A = 5
+Node B = 5
+Node C = 5
 
-3. Application-Defined Resolution
-   App knows domain better
-   
-   Example: Merge function
-   user.age: merge(30, 31) → 31 (keep max)
-   user.name: merge("John", "Jon") → Keep both? Merge?
-   
-   More complex but semantically correct
+System converges.
 
-4. Conflict-Free Replicated Data Types (CRDTs)
-   Data structure designed for concurrent updates
-   No conflicts possible by design
-   
-   Example: Counter CRDT
-     Node A: +5
-     Node B: +3
-     → Both agree on +8 (commutative)
-   
-   Example: Set CRDT
-     Node A: add X
-     Node B: add Y
-     → Both agree on {X, Y}
-   
-   Pros: No conflict resolution needed
-   Cons: Limited to certain data types
+⸻
 
-Real-world:
-  DynamoDB: LWW (but hooks for custom)
-  Cassandra: LWW + tuple timestamps
-  Git: User-defined (conflicts in working tree)
-  CouchDB: CRDT-inspired approach
-```
+Definition
 
----
+If no new writes occur, eventually all replicas become identical.
 
-## PART 6: MONITORING DISTRIBUTED SYSTEMS
+⸻
 
-### 6.1 Observability
-```
-Three Pillars:
+Suitable For
 
-Metrics (What):
-  Counters: Requests, errors, bytes sent
-  Gauges: Active connections, queue depth
-  Histograms: Latency distribution, response sizes
-  
-  Tools: Prometheus, Graphite, CloudWatch
-  
-  Example:
-    request_count: 100k
-    error_rate: 0.1% (100 errors)
-    p99_latency: 500ms (99% under 500ms)
+🟩 Social media feeds
 
-Logs (Why):
-  Detailed record of events
-  Searchable, contextualized
-  
-  Tools: ELK (Elasticsearch, Logstash, Kibana), Splunk, Loki
-  
-  Example:
-    2024-01-15 10:23:45.123
-    ERROR [OrderService]
-    Failed to process order: order_id=12345
-    reason: timeout calling payment_service
-    duration: 30000ms
+🟩 Analytics
 
-Traces (How):
-  Follow request through system
-  Understand call flow and dependencies
-  
-  Tools: Jaeger, Zipkin, X-Ray
-  
-  Example:
-    Trace ID: abc-123
-    Span 1: API Gateway (2ms)
-      → Span 2: OrderService (10ms)
-        → Span 3: PaymentService (8ms - TIMEOUT)
-        → Span 4: NotificationService (5ms)
-      → Span 5: LogService (1ms)
-    
-    Identifies: PaymentService timeout is culprit
+🟩 Caching
 
-Unified:
-  Metrics tell WHAT (rate elevated)
-  Logs tell WHY (error in service X)
-  Traces tell HOW (request flow through system)
-```
+⸻
 
-### 6.2 Alerting Strategy
-```
-Alert when:
-  Service down (availability)
-  Error rate high
-  Latency high
-  Database replication lag
-  Disk space low
-  Memory leak (growing over time)
+Not Suitable For
 
-Alert severity:
+🟥 Banking
 
-Page (Immediate):
-  Users directly impacted
-  Service unavailable
-  Data loss risk
-  
-  Example: "API returning 500 errors"
+🟥 Inventory
 
-On-Call Rotation:
-  Someone on-call 24/7
-  Pager goes off
-  Must respond within 5-15 min
+🟥 Authentication
 
-Ticket (Business Hours):
-  Degraded but not critical
-  Users inconvenienced
-  
-  Example: "API latency p99 = 1s"
+⸻
 
-Context (No Alert):
-  Informational
-  Investigate but not urgent
-  
-  Example: "New deploy finished"
-```
+⚔ Conflict Resolution
 
----
+⸻
 
-## KEY TAKEAWAYS
+Last Write Wins
 
-1. **Replication** enables high availability (failover)
-2. **Replication lag** causes consistency issues (eventual)
-3. **CAP theorem** forces choice (P mandatory, C or A)
-4. **Consensus** (Raft) enables agreement despite failures
-5. **Sharding** enables horizontal scaling (but adds complexity)
-6. **Hot shards** become bottlenecks (monitor, split early)
-7. **Eventual consistency** trades immediacy for availability
-8. **Conflict resolution** needed in multi-master (LWW, CRDTs)
-9. **Monitoring** (metrics, logs, traces) essential for debugging
-10. **Distributed systems hard** - start simple, add complexity
+A : age=30 @100
+B : age=31 @99
+Keep timestamp 100
 
----
+Simple but clock dependent.
 
-*Design for scale, prepare for failure, monitor everything.*
+⸻
+
+Vector Clocks
+
+Node A
+[A:5 B:3]
+Node B
+[A:3 B:4]
+
+Tracks causality.
+
+More accurate.
+
+⸻
+
+CRDT
+
+Concurrent updates naturally merge.
+
+Example:
+
+Counter
+Node A +5
+Node B +3
+Result = +8
+
+No conflicts.
+
+⸻
+
+🔵 PART 8 — OBSERVABILITY
+
+⸻
+
+Three Pillars
+
+        Observability
+     ┌────────┼─────────┐
+     ▼        ▼         ▼
+ Metrics    Logs     Traces
+
+⸻
+
+Metrics
+
+WHAT happened?
+
+Request count
+Error %
+P99 latency
+
+Tools:
+
+🟢 Prometheus
+
+🟢 CloudWatch
+
+⸻
+
+Logs
+
+WHY happened?
+
+ERROR:
+Payment timeout
+Order ID=1234
+
+Tools:
+
+🟢 ELK
+
+🟢 Splunk
+
+🟢 Loki
+
+⸻
+
+Traces
+
+HOW did it happen?
+
+Gateway
+   │
+Order Service
+   │
+Payment Service (timeout)
+   │
+Notification
+
+Tools:
+
+🟢 Jaeger
+
+🟢 Zipkin
+
+⸻
+
+🚨 PART 9 — ALERTING
+
+⸻
+
+Critical (Page Immediately)
+
+🔴 Service down
+
+🔴 Data loss risk
+
+🔴 500 errors
+
+Pager → On-call engineer
+
+⸻
+
+Warning (Ticket)
+
+🟡 High latency
+
+🟡 Replication lag
+
+Investigate during work hours.
+
+⸻
+
+Informational
+
+🟢 Deployment completed
+
+🟢 Scaling event
+
+No alert needed.
+
+⸻
+
+📌 CHEAT SHEET
+
+Concept	Purpose
+Replication	High availability
+Consensus (Raft)	Agreement among nodes
+CAP	C vs A under partition
+Sharding	Horizontal scaling
+Consistent Hashing	Easy rebalancing
+Eventual Consistency	High availability
+CRDTs	Conflict-free updates
+Metrics	WHAT
+Logs	WHY
+Traces	HOW
+Alerts	Detect failures
+
+⸻
+
+⭐ GOLDEN RULES
+
+Design for failure.
+
+Assume networks are unreliable.
+
+Replication gives availability, not consistency.
+
+CAP means partitions force tradeoffs.
+
+Sharding solves scale but adds complexity.
+
+Monitor everything.
+
+Start simple; distribute only when necessary.
+
+⸻
+
+🧠 Mental Model
+
+                Distributed System
+      Scale
+         │
+         ▼
+     Sharding
+         │
+         ▼
+   Multiple Machines
+         │
+         ▼
+     Replication
+         │
+         ▼
+     Consistency
+         │
+         ▼
+      Consensus
+         │
+         ▼
+      Observability
+         │
+         ▼
+      Reliability
+
+⸻
+
+The hardest part of distributed systems isn’t making them work — it’s making them fail gracefully.
